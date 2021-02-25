@@ -5,11 +5,12 @@
 //  Copyright © 2017 vit9696. All rights reserved.
 //
 
-#include <Library/LegacyIOService.h>
+#include <IOKit/IOService.h>
 #include <Headers/kern_efi.hpp>
 #include <Headers/kern_devinfo.hpp>
 #include <Headers/kern_iokit.hpp>
 #include <Headers/kern_crypto.hpp>
+#include <Headers/kern_version.hpp>
 #include <Headers/plugin_start.hpp>
 #include <IOKit/pwr_mgt/IOPM.h>
 #include <IOKit/IODeviceTreeSupport.h>
@@ -116,8 +117,7 @@ bool VirtualSMC::start(IOService *provider) {
 
 	// We do not need them anymore
 	removeProperty("CFBundleIdentifier");
-	removeProperty("IOClass");
-	removeProperty("IOMatchCategory");
+	// Do not remove IOClass and IOMatchCategory as it may cause double startup to happen on 10.6.
 	removeProperty("IOName");
 	removeProperty("IOProbeScore");
 	removeProperty("IOProviderClass");
@@ -125,7 +125,9 @@ bool VirtualSMC::start(IOService *provider) {
 	removeProperty("OverrideModelInfo");
 	removeProperty("Keystore");
 	removeProperty("UserKeystore");
-	
+
+	setProperty("VersionInfo", kextVersion);
+
 	pmio = new SMCProtocolPMIO;
 	if (deviceInfo.getGeneration() >= SMCInfo::Generation::V2)
 		mmio = new SMCProtocolMMIO;
@@ -166,6 +168,8 @@ bool VirtualSMC::start(IOService *provider) {
 		// Retain ourselves to avoid crashes if lilu is missing (only valid for first gen).
 		ADDPR(startSuccess) = true;
 	}
+
+	DBGLOG("vsmc", "starting up vsmc service (%d) " PRIKADDR, shouldServicingInit, CASTKADDR(this));
 
 	return true;
 }
@@ -352,6 +356,7 @@ bool VirtualSMC::obtainModelInfo(SMCInfo &deviceInfo, const char *boardIdentifie
 }
 
 void VirtualSMC::stop(IOService * provider) {
+	DBGLOG("vsmc", "stopping vsmc service " PRIKADDR, CASTKADDR(this));
 	PMstop();
 	IOACPIPlatformDevice::stop(this);
 }
@@ -399,7 +404,7 @@ bool VirtualSMC::devicesPresent(IOService *provider) {
 SMCInfo::Generation VirtualSMC::forcedGeneration() {
 	// I do not think we support anything below 10.8 but just in case...
 	if (getKernelVersion() < KernelVersion::MountainLion) {
-		SYSLOG("vsmc", "mmio protocol is supported on 10.8 and newer");
+		DBGLOG("vsmc", "mmio protocol is supported on 10.8 and newer");
 		return SMCInfo::Generation::V1;
 	}
 

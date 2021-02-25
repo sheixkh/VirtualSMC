@@ -7,7 +7,7 @@
 
 #include <Headers/kern_compat.hpp>
 #include <Headers/kern_api.hpp>
-#include <Headers/kern_atomic.hpp>
+#include <stdatomic.h>
 #include <Headers/kern_time.hpp>
 
 #include <libkern/c++/OSContainers.h>
@@ -32,6 +32,11 @@ bool SMCSMBusController::init(OSDictionary *properties) {
 IOService *SMCSMBusController::probe(IOService *provider, SInt32 *score) {
 	if (!IOSMBusController::probe(provider, score)) {
 		SYSLOG("smcbus", "parent probe failure");
+		return nullptr;
+	}
+
+	if (getKernelVersion() < KernelVersion::Lion) {
+		DBGLOG("sdell", "unsupported before 10.7");
 		return nullptr;
 	}
 
@@ -233,7 +238,7 @@ IOSMBusStatus SMCSMBusController::startRequest(IOSMBusRequest *request) {
 				}
 				case kBTemperatureCmd: {
 					IOSimpleLockLock(BatteryManager::getShared()->stateLock);
-					auto value = BatteryManager::getShared()->state.btInfo[0].state.temperatureRaw;
+					auto value = BatteryManager::getShared()->state.btInfo[0].state.temperatureDecikelvin;
 					IOSimpleLockUnlock(BatteryManager::getShared()->stateLock);
 					setReceiveData(transaction, value);
 					break;

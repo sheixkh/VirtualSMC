@@ -10,7 +10,7 @@
 #ifndef _SMCSUPERIO_HPP
 #define _SMCSUPERIO_HPP
 
-#include <Library/LegacyIOService.h>
+#include <IOKit/IOService.h>
 
 #include <Headers/kern_util.hpp>
 #include <Headers/kern_cpu.hpp>
@@ -102,7 +102,7 @@ private:
 	/**
 	 *  Timer scheduling status
 	 */
-	bool timerEventScheduled {false};
+	atomic_flag timerEventScheduled = {};
 
 	/**
 	 *  Refresh sensor state on timer basis
@@ -115,11 +115,6 @@ private:
 	 */
 	SuperIODevice* detectDevice();
 public:
-	/**
-	 *  Sensor access lock
-	 */
-	IOSimpleLock *counterLock {nullptr};
-	
 	/**
 	 *  Decide on whether to load or not by checking the processor compatibility.
 	 *
@@ -154,7 +149,7 @@ public:
 	/**
 	 *  Submit the keys to received VirtualSMC service.
 	 *
-	 *  @param sensors   SensorsCPU service
+	 *  @param sensors   Sensors service
 	 *  @param refCon    reference
 	 *  @param vsmc      VirtualSMC service
 	 *  @param notifier  created notifier

@@ -6,11 +6,12 @@
 //
 
 #include <VirtualSMCSDK/kern_vsmcapi.hpp>
-#include <Headers/kern_atomic.hpp>
+#include <stdatomic.h>
 
 #include "SMCBatteryManager.hpp"
 #include "KeyImplementations.hpp"
-#include <Sensors/Private/AppleSmartBatteryCommands.h>
+#include <IOKit/battery/AppleSmartBatteryCommands.h>
+#include <Headers/kern_version.hpp>
 
 OSDefineMetaClassAndStructors(SMCBatteryManager, IOService)
 
@@ -41,7 +42,9 @@ bool SMCBatteryManager::start(IOService *provider) {
 		SYSLOG("sbat", "failed to start the parent");
 		return false;
 	}
-	
+
+	setProperty("VersionInfo", kextVersion);
+
 	// AppleSMC presence is a requirement, wait for it.
 	auto dict = IOService::nameMatching("AppleSMC");
 	if (!dict) {
@@ -60,6 +63,8 @@ bool SMCBatteryManager::start(IOService *provider) {
 	applesmc->release();
 	
 	DBGLOG("bmgr", "AppleSMC is available now");
+
+	BatteryManager::getShared()->start();
 
 	//WARNING: watch out, key addition is sorted here!
 
@@ -85,10 +90,12 @@ bool SMCBatteryManager::start(IOService *provider) {
 		VirtualSMCAPI::addKey(KeyB0RM(i), vsmcPlugin.data, VirtualSMCAPI::valueWithUint16(2000, new B0RM(i), SMC_KEY_ATTRIBUTE_PRIVATE_WRITE|SMC_KEY_ATTRIBUTE_WRITE|SMC_KEY_ATTRIBUTE_READ));
 		VirtualSMCAPI::addKey(KeyB0St(i), vsmcPlugin.data, VirtualSMCAPI::valueWithData(nullptr, 2, SmcKeyTypeHex, new B0St(i), SMC_KEY_ATTRIBUTE_PRIVATE_WRITE|SMC_KEY_ATTRIBUTE_WRITE|SMC_KEY_ATTRIBUTE_READ));
 		VirtualSMCAPI::addKey(KeyB0TF(i), vsmcPlugin.data, VirtualSMCAPI::valueWithUint16(0, new B0TF(i)));
-		VirtualSMCAPI::addKey(KeyTB0T(i+1), vsmcPlugin.data, VirtualSMCAPI::valueWithSp(0, SmcKeyTypeSp78, new TB0T(i)));
+		if (BatteryManager::getShared()->state.btInfo[i].state.publishTemperatureKey) {
+			VirtualSMCAPI::addKey(KeyTB0T(i+1), vsmcPlugin.data, VirtualSMCAPI::valueWithSp(0, SmcKeyTypeSp78, new TB0T(i)));
+			if (i == 0)
+				VirtualSMCAPI::addKey(KeyTB0T(0), vsmcPlugin.data, VirtualSMCAPI::valueWithSp(0, SmcKeyTypeSp78, new TB0T(0)));
+		}
 	}
-	if (batCount)
-		VirtualSMCAPI::addKey(KeyTB0T(0), vsmcPlugin.data, VirtualSMCAPI::valueWithSp(0, SmcKeyTypeSp78, new TB0T(0)));
 
 	VirtualSMCAPI::addKey(KeyBATP, vsmcPlugin.data, VirtualSMCAPI::valueWithFlag(true, new BATP));
 	VirtualSMCAPI::addKey(KeyBBAD, vsmcPlugin.data, VirtualSMCAPI::valueWithFlag(false, new BBAD));
@@ -138,8 +145,6 @@ bool SMCBatteryManager::start(IOService *provider) {
 
 	qsort(const_cast<VirtualSMCKeyValue *>(vsmcPlugin.data.data()), vsmcPlugin.data.size(), sizeof(VirtualSMCKeyValue), VirtualSMCKeyValue::compare);
 
-	BatteryManager::getShared()->start();
-
 	vsmcNotifier = VirtualSMCAPI::registerHandler(vsmcNotificationHandler, this);
 	smc_battery_manager_started = (vsmcNotifier != nullptr);
 	return vsmcNotifier != nullptr;
@@ -181,21 +186,3 @@ EXPORT extern "C" kern_return_t ADDPR(kern_stop)(kmod_info_t *, void *) {
 	// It is not safe to unload VirtualSMC plugins!
 	return KERN_FAILURE;
 }
-
-#ifdef __MAC_10_15
-
-// macOS 10.15 adds Dispatch function to all OSObject instances and basically
-// every header is now incompatible with 10.14 and earlier.
-// Here we add a stub to permit older macOS versions to link.
-// Note, this is done in both kern_util and plugin_start as plugins will not link
-// to Lilu weak exports from vtable.
-
-kern_return_t WEAKFUNC PRIVATE OSObject::Dispatch(const IORPC rpc) {
-	PANIC("util", "OSObject::Dispatch smcbat stub called");
-}
-
-kern_return_t WEAKFUNC PRIVATE OSMetaClassBase::Dispatch(const IORPC rpc) {
-	PANIC("util", "OSMetaClassBase::Dispatch smcbat stub called");
-}
-
-#endif

@@ -14,7 +14,7 @@
 #define SMIMonitor_hpp
 
 #include <i386/proc_reg.h>
-#include <Headers/kern_atomic.hpp>
+#include <stdatomic.h>
 #include <VirtualSMCSDK/kern_vsmcapi.hpp>
 
 #include "SMIState.hpp"
@@ -85,12 +85,12 @@
 #define I8K_FN_SHIFT			8
 
 struct SMMRegisters {
-	unsigned int eax;
-	unsigned int ebx;
-	unsigned int ecx;
-	unsigned int edx;
-	unsigned int esi;
-	unsigned int edi;
+	uint32_t eax;
+	uint32_t ebx;
+	uint32_t ecx;
+	uint32_t edx;
+	uint32_t esi;
+	uint32_t edi;
 };
 
 struct StoredSmcUpdate {
@@ -159,7 +159,7 @@ public:
 	/**
 	 *  Post request
 	 */
-	bool postSmcUpdate(SMC_KEY key, size_t index, const void *data, uint32_t dataSize);
+	bool postSmcUpdate(SMC_KEY key, size_t index, const void *data, uint32_t dataSize, bool force_update = false);
 
 	/**
 	 *  Main refreshed battery state containing battery information
@@ -169,23 +169,27 @@ public:
 	/**
 	 *  Actual fan control status
 	 */
-	_Atomic(uint16_t)	fansStatus = 0;
+	atomic_uint_fast16_t fansStatus = 0;
 
 	/**
 	 *  Actual fan count
 	 */
-	_Atomic(uint32_t) fanCount = 0;
+	atomic_uint fanCount = 0;
 
 	/**
 	 *  Actual temperature sensors count
 	 */
-	_Atomic(uint32_t) tempCount = 0;
+	atomic_uint tempCount = 0;
 
 	/**
 	 *  Fan multiplier
 	 */
-	_Atomic(int) fanMult = 1;
+	atomic_int fanMult = 1;
 	
+	
+	static atomic_bool busy;
+
+
 private:
 	/**
 	 *  The only allowed battery manager instance
@@ -215,13 +219,18 @@ private:
 	/**
 	 *  variable-event, keeps thread initialization result (0 or error code)
 	 */
-	_Atomic(int) initialized = -1;
-	
+	atomic_int initialized = -1;
+
 	/**
 	 *  Awake flag
 	 */
-	_Atomic(bool) awake = true;
-
+	atomic_bool awake = true;
+	
+	/**
+	 *  Ignore SMC updates flag
+	 */
+	atomic_bool ignore_new_smc_updates = false;
+	
 	/**
 	 *  Stored events for writing to SMM (event queue)
 	 */
@@ -231,6 +240,8 @@ private:
 	 *  Smc updates may happen which have to be handled in thread binded to CPU 0
 	 */
 	static constexpr size_t MaxActiveSmcUpdates {40};
+
+private:
 
 	/**
 	 *  Bind working thread to CPU 0
@@ -276,7 +287,6 @@ private:
 	void hanldeManualTargetSpeedUpdate(size_t index, UInt8 *data);
 	void handleManualForceFanControlUpdate(UInt8 *data);
 
-private:
 	int  i8k_smm(SMMRegisters *regs);
 	bool i8k_get_dell_sig_aux(int fn);
 	bool i8k_get_dell_signature();

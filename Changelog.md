@@ -1,10 +1,33 @@
 VirtualSMC Changelog
 ====================
-#### 1.1.6
+#### v1.2.1
+- Fix version publishing for VirtualSMC and plugins
+
+#### v1.2.0
+- Improve manual fan control in SMCDellSensors (switch off manual control before going to sleep), rename control boot-args (start with -dell)
+
+#### v1.1.9
+- Improve manual fan control in SMCDellSensors (use control registers 0x35a3 and 0x34a3 to cover more Dell models)
+- Fix processKext in SMCDellSensors (could be called multiple times for the same kext since flag Reloadable was set)
+- Reduce audio lags in SMCDellSensors when USB audio device is used
+- Allow not injecting TB0T SMC key when it is unavailable in SMCBatteryManager
+
+#### v1.1.8
+- Reduce audio lags in SMCDellSensors
+
+#### v1.1.7
+- Added MacKernelSDK with Xcode 12 compatibility
+- Fixed SMCDellSensors loading on macOS 10.8
+- Added VirtualSMC support for 10.6 (most plugins require newer versions)
+- Fixed rare kernel panic in SMCSuperIO
+
+#### v1.1.6
 - Added battery supplement info, thx @zhen-zen
 - Fix audio lags in Safari caused by reading SMM in SMCDellSensors plugin
 - Fix module version for SMCDellSensors, SMCBatteryManager and SMCLightSensor
 - Optimised floating point sensor key reading with fewer arithmetic operations
+- Improved SMCProcessor CPU power consumption by relaxing core synchronisation
+- Fix key sensor key enumeration on Macmini8,x and MacBookPro models
 
 #### v1.1.5
 - Improved CHLC key value reporting

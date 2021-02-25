@@ -9,6 +9,7 @@
 
 #include <VirtualSMCSDK/kern_vsmcapi.hpp>
 #include <Headers/kern_time.hpp>
+#include <Headers/kern_version.hpp>
 #include <IOKit/IODeviceTreeSupport.h>
 #include <IOKit/IOTimerEventSource.h>
 
@@ -23,15 +24,11 @@ bool ADDPR(debugEnabled) = false;
 uint32_t ADDPR(debugPrintDelay) = 0;
 
 void SMCSuperIO::timerCallback() {
-	auto time = getCurrentTimeNs();
-	auto timerDelta = time - timerEventLastTime;
 	dataSource->update();
 	// timerEventSource->setTimeoutMS calls thread_call_enter_delayed_with_leeway, which spins.
 	// If the previous one was too long ago, schedule another one for differential recalculation!
-	if (timerDelta > MaxDeltaForRescheduleNs)
-		timerEventScheduled = timerEventSource->setTimeoutMS(TimerTimeoutMs) == kIOReturnSuccess;
-	else
-		timerEventScheduled = false;
+	timerEventSource->setTimeoutMS(TimerTimeoutMs);
+	atomic_flag_clear_explicit(&timerEventScheduled, memory_order_release);
 }
 
 IOService *SMCSuperIO::probe(IOService *provider, SInt32 *score) {
@@ -46,6 +43,8 @@ bool SMCSuperIO::start(IOService *provider) {
 		return false;
 	}
 
+	setProperty("VersionInfo", kextVersion);
+
 	auto ioreg = OSDynamicCast(IORegistryEntry, this);
 
 	dataSource = detectDevice();
@@ -55,7 +54,6 @@ bool SMCSuperIO::start(IOService *provider) {
 	}
 
 	// Prepare time sources and event loops
-	counterLock = IOSimpleLockAlloc();
 	workloop = IOWorkLoop::workLoop();
 	timerEventSource = IOTimerEventSource::timerEventSource(this, [](OSObject *object, IOTimerEventSource *sender) {
 		auto cp = OSDynamicCast(SMCSuperIO, object);
@@ -64,8 +62,8 @@ bool SMCSuperIO::start(IOService *provider) {
 		}
 	});
 
-	if (!timerEventSource || !workloop || !counterLock) {
-		SYSLOG("ssio", "failed to create workloop, timer event source, or counter lock");
+	if (!timerEventSource || !workloop) {
+		SYSLOG("ssio", "failed to create workloop or timer event source");
 		goto startFailed;
 	}
 	if (workloop->addEventSource(timerEventSource) != kIOReturnSuccess) {
@@ -96,19 +94,15 @@ bool SMCSuperIO::start(IOService *provider) {
 	return vsmcNotifier != nullptr;
 
 startFailed:
-	if (counterLock) {
-		IOSimpleLockFree(counterLock);
-		counterLock = nullptr;
-	}
 	OSSafeReleaseNULL(workloop);
 	OSSafeReleaseNULL(timerEventSource);
 	return false;
 }
 
 void SMCSuperIO::quickReschedule() {
-	if (!timerEventScheduled) {
+	if (!atomic_flag_test_and_set_explicit(&timerEventScheduled, memory_order_acquire)) {
 		// Make it 10 times faster
-		timerEventScheduled = timerEventSource->setTimeoutMS(TimerTimeoutMs/10) == kIOReturnSuccess;
+		timerEventSource->setTimeoutMS(TimerTimeoutMs/10);
 	}
 }
 
@@ -169,21 +163,3 @@ EXPORT extern "C" kern_return_t ADDPR(kern_stop)(kmod_info_t *, void *) {
 	// It is not safe to unload VirtualSMC plugins!
 	return KERN_FAILURE;
 }
-
-#ifdef __MAC_10_15
-
-// macOS 10.15 adds Dispatch function to all OSObject instances and basically
-// every header is now incompatible with 10.14 and earlier.
-// Here we add a stub to permit older macOS versions to link.
-// Note, this is done in both kern_util and plugin_start as plugins will not link
-// to Lilu weak exports from vtable.
-
-kern_return_t WEAKFUNC PRIVATE OSObject::Dispatch(const IORPC rpc) {
-	PANIC("util", "OSObject::Dispatch smcio stub called");
-}
-
-kern_return_t WEAKFUNC PRIVATE OSMetaClassBase::Dispatch(const IORPC rpc) {
-	PANIC("util", "OSMetaClassBase::Dispatch smcio stub called");
-}
-
-#endif
